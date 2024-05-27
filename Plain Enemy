@@ -1,0 +1,41 @@
+extends CharacterBody2D
+
+var SPEED = 50
+var gravity = 10
+var player
+var chase = false
+var animation_player
+var grow = false  # Add a variable to track growth
+var max_scale = 4.0  # Define the maximum scale
+
+func _ready():
+	get_node("AnimatedSprite2D").play("Idle")
+	get_node("AnimatedSprite2D").flip_h = true
+	player = get_node(".")  # Adjust this to the correct path to your player node
+
+
+func _physics_process(delta):
+	# Apply gravity
+	velocity.y += gravity * delta
+
+	if chase:
+		get_node("AnimatedSprite2D").play("Flying")
+		var direction = (player.position - self.position).normalized()
+		if direction.x > 0:
+			get_node("AnimatedSprite2D").flip_h = false
+		else:
+			get_node("AnimatedSprite2D").flip_h = true
+		velocity.x = direction.x * SPEED
+		move_and_slide()
+
+
+func _on_detection_area_body_entered(body):
+	if body.name == 'Player':
+		chase = true
+
+func _on_detection_area_body_exited(body):
+	if body.name == 'Player':
+		chase = false
+		
+func enemy():
+	pass
