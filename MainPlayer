@@ -1,23 +1,23 @@
 extends CharacterBody2D
 
+const SPEED = 200.0
+const JUMP_VELOCITY = -400.0
+const WALL_JUMP_VELOCITY = 400
+const WALL_SLIDE_SPEED = 10.0
+const ATTACK_COOLDOWN = 0.5
+
+var DEFAULT_GRAVITY = ProjectSettings.get_setting("physics/2d/default_gravity")
 var enemyRange = false
 var atk_coolDwn = true
 var health = 100
 var playerAlive = true
-const SPEED = 200.0
-const JUMP_VELOCITY = -400.0
-const WALL_JUMP_VELOCITY = 400
-var DEFAULT_GRAVITY = ProjectSettings.get_setting("physics/2d/default_gravity")
-const WALL_SLIDE_SPEED = 10.0
 var chase = false
 var can_jump = true
-var jump_velocity = -10
 var isAttacking = false
-var attackCooldown = 0.5 # Adjust this value as needed
+var hooked = false
 
 var motion = Vector2()
 var hook_pos = Vector2()
-var hooked = false
 var rope_length = 500
 var current_rope_length = rope_length
 
@@ -25,99 +25,94 @@ var current_rope_length = rope_length
 @onready var sprite = $Sprite2D
 @onready var sword_area = $Sword/Area2D
 
-# Always on
 func _ready():
 	current_rope_length = rope_length
 
-func player():
-	pass
-
-func move(delta):
-	if Input.is_action_pressed("ui_right"):
-		velocity.x = SPEED
-	elif Input.is_action_pressed("ui_left"):
-		velocity.x = -SPEED
-	else:
-		velocity.x = 0
-
-# Physics 
-# Gotta figure out a way to organaize all dis stuff
 func _physics_process(delta):
-	#### BASIC DIRECTIONS ####
-	# Add default gravity
-	if not is_on_floor(): # Change this name to gravity ... too lazy atm
+	handle_gravity(delta)
+	handle_movement()
+	handle_jump()
+	handle_attack()
+	handle_wall_slide()
+	handle_enemy_attack()
+	handle_grappling_hook(delta)
+	handle_animation()
+	check_health()
+
+# Handle gravity
+func handle_gravity(delta):
+	if not is_on_floor():
 		velocity.y += DEFAULT_GRAVITY * delta
-		
-	# Get input direction and handle movement/deceleration
+
+# Handle movement
+func handle_movement():
 	var direction = Input.get_action_strength("ui_right") - Input.get_action_strength("ui_left")
 	velocity.x = direction * SPEED
-		
-	# Handle jump physics
+	move_and_slide()
+
+# Handle jump
+func handle_jump():
 	if can_jump and Input.is_action_just_pressed("ui_accept"):
 		ap.play("Jump")
 		if is_on_floor():
 			velocity.y = JUMP_VELOCITY
 		elif is_on_wall():
-			if Input.is_action_pressed("ui_right"):
-				velocity = Vector2(WALL_JUMP_VELOCITY, JUMP_VELOCITY)
-			elif Input.is_action_pressed("ui_left"):
-				velocity = Vector2(-WALL_JUMP_VELOCITY, JUMP_VELOCITY)
-	#### BASIC DIRECTIONS ####
-				
-	### ANIMATION PHYSICS ###
-	# Flip sprite
-	if Input.is_action_just_pressed("ui_left"):
-		sprite.flip_h = direction > 0
-	else:
-		sprite.flip_h = direction < 0
-	# Update animation
-	update_animation(direction)
-	### ANIMATION PHYSICS ###
-	
-	### ACTIONS ###
-	# Handle attack
+			handle_wall_jump()
+
+# Handle wall jump
+func handle_wall_jump():
+	if Input.is_action_pressed("ui_right"):
+		velocity = Vector2(WALL_JUMP_VELOCITY, JUMP_VELOCITY)
+	elif Input.is_action_pressed("ui_left"):
+		velocity = Vector2(-WALL_JUMP_VELOCITY, JUMP_VELOCITY)
+
+# Handle attack
+func handle_attack():
 	if Input.is_action_just_pressed("Swing"):
 		ap.play("Attack")
 		isAttacking = true
-		# Add your attack logic here
+		# Add more attack logic here
 
-	# Apply wall slide
+# Handle wall slide
+func handle_wall_slide():
 	if is_on_wall() and not is_on_floor():
 		velocity.y = clamp(velocity.y, -WALL_SLIDE_SPEED, WALL_SLIDE_SPEED)
-	### ACTIONS ###
-	
-	### WHAT THAT ENEMY DO ###
-	# Handles enemy attack
-	enemy_attack()
-	
+
+# Handle grappling hook
+func handle_grappling_hook(delta):
+	is_on_floor()
+	hook()
+	if hooked:
+		swing(delta)
+		motion = move_and_slide()
+
+# Handle animation
+func handle_animation():
+	var direction = Input.get_action_strength("ui_right") - Input.get_action_strength("ui_left")
+	if direction != 0:
+		sprite.flip_h = direction < 0
+	update_animation(direction)
+
+# Handle enemy attack
+func handle_enemy_attack():
+	if enemyRange and atk_coolDwn:
+		health -= 10
+		atk_coolDwn = false
+		$attackCD.start()
+		print(health)
+
+# Check player health
+func check_health():
 	if health <= 0:
-		playerAlive = false # end screen
+		playerAlive = false
 		health = 0
 		print("player has been killed")
 		queue_free()
-	### WHAT THAT ENEMY DO ###
 
-	### GRAPPLE PHYSICS ###
-	is_on_floor()
-	hook()
-	#update()
-	if hooked:
-		swing(delta)
-		#motion = motion * 1# speed of swing
-		motion = move_and_slide()
-		
-	move(delta)
-	motion = move_and_slide()
-	### GRAPPLE PHYSICS ###
-
-	### MOVE ###
-	move_and_slide()
-	### MOVE ###
-
-# Handles animations
+# Update animation
 func update_animation(direction):
 	if isAttacking:
-		return # Don't change animation while attacking
+		return
 	if is_on_floor():
 		if direction == 0:
 			ap.play("Idle")
@@ -129,18 +124,12 @@ func update_animation(direction):
 		elif velocity.y > 0:
 			ap.play("Fall")
 
-# Kill on sword
-func _on_sword_body_entered(body):
-	if body.has_method("enemy"):
-		body.queue_free()
-		print("enemy hit")
-		
+# Grappling hook functions
 func get_hook_pos():
 	for raycast in $Raycast.get_children():
 		if raycast.is_colliding():
 			return raycast.get_collision_point()
-		
-# Grappeling Hook
+
 func hook():
 	$Raycast.look_at(get_global_mouse_position())
 	if Input.is_action_just_pressed("left_click"):
@@ -148,55 +137,45 @@ func hook():
 		if hook_pos:
 			hooked = true
 			current_rope_length = global_position.direction_to(hook_pos)
-	if Input.is_action_just_released("left_click") and hooked:
+	elif Input.is_action_just_released("left_click") and hooked:
 		hooked = false
-			
-# Player Swings from grappeling hook        
+
 func swing(delta):
 	var radius = global_position - hook_pos
-
 	if motion is Vector2 and radius is Vector2:
 		if motion.length() < 0.01 or radius.length() < 10:
 			return
-
 		var angle = acos(radius.dot(motion) / (radius.length() * motion.length()))
 		var rad_vel = cos(angle) * motion.length()
 		motion += radius.normalized() * -rad_vel
-
 		if global_position.distance_to(hook_pos) > current_rope_length:
 			global_position = hook_pos + radius.normalized() * current_rope_length
-
 		motion += (hook_pos - global_position).normalized() * 15000 * delta
 
-# Drawing the grappeling hook
 func _draw():
-	var pos = global_position
 	if hooked:
 		draw_line(Vector2(0, 0), to_local(hook_pos), Color(0.35, 0.7, 0.9), 3, true)
 	else:
 		return
-
 	var colliding = $Raycast.is_colliding()
 	var collide_point = $Raycast.get_collision_point()
-	if colliding and pos.distance_to(collide_point) < rope_length:
-		draw_line(Vector2(0, -16), to_local(collide_point), Color(1, 1, 1, 0.25), 0.5, true)
+	if colliding and global_position.distance_to(collide_point) < rope_length:
+		draw_line(Vector2(0, 0), to_local(collide_point), Color(1, 1, 1, 0.25), 0.5, true)
 
-# Player gets hurt by the enemy
+# Sword collision
+func _on_sword_body_entered(body):
+	if body.has_method("enemy"):
+		body.queue_free()
+		print("enemy hit")
+
+# Player hitbox collision
 func _on_player_hitbox_body_entered(body):
 	if body.has_method("enemy"):
 		enemyRange = true
 
-# Player leaves enemy hitbox
 func _on_player_hitbox_body_exited(body):
 	if body.has_method("enemy"):
 		enemyRange = false
-		
-func enemy_attack():
-	if enemyRange and atk_coolDwn:
-		health -= 10
-		atk_coolDwn = false
-		$attackCD.start()
-		print(health)
 
 func _on_attack_cd_timeout():
 	atk_coolDwn = true
